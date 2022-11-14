@@ -1,0 +1,25 @@
+---
+title: "STA 206 Project"
+author: "Samuel Van Gorden, Shawheen Naderi"
+date: "11/14/2022"
+output: html_document
+---
+
+```{r}
+data <- read.table("bodyfat.txt")
+names(data) <- c("density","pbf","age","weight","height","neck","chest","abdomen","hip","thigh","knee","ankle","bicep","forearm","wrist")
+sapply(data, class)
+apply(sapply(data, is.na), 2, sum)
+par(mfrow = c(5,3), mar = c(2,1,1,1))
+
+for (i in 1:length(names(data))) {
+  hist(data[,i], main = paste("Histogram of", names(data)[i]))
+}
+sapply(data, hist, )
+```
+
+Make some histograms more granular?
+
+Possibly make some variables categorical (height, age). Maybe convert height to cm?
+
+There are several observations that seem to be outliers: an observation with 0.0 percent body fat, an observation with 29.5-inch height . These should probably be removed. Many of the variables seem to be roughly normally distributed, with some having slight right skew.
