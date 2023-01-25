@@ -1,13 +1,17 @@
 ---
 title: "STA 206 Project"
-author: "Samuel Van Gorden, Shawheen Naderi"
+author: "Samuel Van Gorden"
 date: "11/14/2022"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
-```{r}
+```{r, echo=FALSE, results='hide', fig.show='hide'}
+# Read data and draw histograms
 data <- read.table("bodyfat.txt")
 names(data) <- c("density","pbf","age","weight","height","neck","chest","abdomen","hip","thigh","knee","ankle","bicep","forearm","wrist")
+data <- data[,c("pbf","density",names(data)[3:length(names(data))])]
 sapply(data, class)
 apply(sapply(data, is.na), 2, sum)
 par(mfrow = c(5,3), mar = c(2,1,1,1))
@@ -15,11 +19,291 @@ par(mfrow = c(5,3), mar = c(2,1,1,1))
 for (i in 1:length(names(data))) {
   hist(data[,i], main = paste("Histogram of", names(data)[i]))
 }
-sapply(data, hist, )
 ```
+
+There are several observations that seem to be outliers: an observation with 0.0 percent body fat, an observation with 29.5-inch height . These should probably be removed. Many of the variables seem to be roughly normally distributed, with some having slight right skew.
 
 Make some histograms more granular?
 
 Possibly make some variables categorical (height, age). Maybe convert height to cm?
 
-There are several observations that seem to be outliers: an observation with 0.0 percent body fat, an observation with 29.5-inch height . These should probably be removed. Many of the variables seem to be roughly normally distributed, with some having slight right skew.
+```{r, echo=FALSE, results='hide', fig.show='hide'}
+# Remove obvious bad data
+data <- data[!(row.names(data) %in% c(42,172,182)),]
+orig.data <- data
+
+# Observe correlations between potential predictor variables
+cor.mat <- cor(data[,2:ncol(data)])
+cor.mat
+cor.mat < .7
+
+# Plot response variable against each predictor variable
+for (i in 2:length(names(data))) {
+  plot(data[,i], data$pbf, xlab = names(data)[i], ylab = "pbf")#main = paste("Plot of density against", names(data)[i]))
+}
+
+y.cor <- cor(data$pbf, data[,2:ncol(data)])
+y.cor
+```
+
+Forearm, ankle, age, density, wrist, and height seem to be least correlated with other predictors. (Try manually removing a few obviously correlated ones like hip and thigh and re-check). The potential predictors that do seem to be correlated with pbf appear to have a mostly linear relationship so higher order models are probably not needed. Age and (especially) height appear to have minimal correlation with pbf. Because of the aforementioned factors, it may be interesting to look at a first-order model with just forearm and ankle as predictors, though this model probably utilizes too few predictors.
+
+First though, let's remove any remaining influential points.
+
+```{r, echo=FALSE, results='hide', fig.show='hide'}
+# Fitting full additive model
+model.full.add <- lm(pbf~., data = data)
+summary(model.full.add)
+anova(model.full.add)
+
+# Check for influential points
+cutoff <- 4/(nrow(data)-length(model.full.add$coefficients)-2)
+plot(model.full.add, which = 4, cook.levels = cutoff)
+abline(h = cutoff, lty = 2, col = "red")
+
+# Remove points and check again for influential points
+data <- data[!(row.names(data) %in% c(48,86,96)),]
+model.full.add <- lm(pbf~., data = data)
+cutoff <- 4/(nrow(data)-length(model.full.add$coefficients)-2)
+plot(model.full.add, which = 4, cook.levels = cutoff)
+abline(h = cutoff, lty = 2, col = "red")
+
+data <- data[!(row.names(data) %in% c(76,169,216)),]
+model.full.add <- lm(pbf~., data = data)
+cutoff <- 4/(nrow(data)-length(model.full.add$coefficients)-2)
+plot(model.full.add, which = 4, cook.levels = cutoff)
+abline(h = cutoff, lty = 2, col = "red")
+
+data <- data[!(row.names(data) %in% c(36,54,192)),]
+model.full.add <- lm(pbf~., data = data)
+cutoff <- 4/(nrow(data)-length(model.full.add$coefficients)-2)
+plot(model.full.add, which = 4, cook.levels = cutoff)
+abline(h = cutoff, lty = 2, col = "red")
+summary(model.full.add)
+```
+
+Try model with relatively high correlation with pbf and low correlation with other variables.
+
+```{r, echo=FALSE, results='hide', fig.show='hide'}
+model.forearmamkle <- lm(pbf~forearm+ankle, data = data)
+summary(model.forearmamkle)
+```
+
+Looks like a pretty bad model (ankle only significant at 0.1 level, very low $R^2$).
+
+Perhaps we try a first order model with everything except hip and thigh (and density since we will be using this in its own model)?
+
+```{r, echo=FALSE, results='hide', fig.show='hide'}
+model.nohipthigh <- lm(pbf~., data = data[,!(names(data) %in% c("density","hip","thigh"))])
+summary(model.nohipthigh)
+```
+
+Better, but we can probably do even better better.
+
+Density, weight, height, and thigh are the only variables significant at < 0.05. Try fitting a model with just those.
+
+```{r, echo=FALSE, results='hide', fig.show='hide'}
+model.red.add <- lm(pbf~density+weight+height+thigh, data = data)
+summary(model.red.add)
+```
+
+All variables are significant at < .001. What does it look like with original data?
+
+```{r, echo=FALSE, results='hide', fig.show='hide'}
+summary(lm(pbf~density+weight+height+thigh, data = orig.data))
+```
+
+The results are quite different (only density and weight are significant at < 0.05). Let's continue using the model with the influential points removed.
+
+It is becoming apparent that density is by far the best single predictor for a simple linear model, with abdomen being a distant second best. However, from the explanation of the data it appears that density is difficult and costly to measure, and being able to estimate pbf using the other variables may be beneficial. Let's start with all other variables and the data with influential points removed.
+
+```{r, echo=FALSE, results='hide', fig.show='hide'}
+# Fit pbf on density only
+model.density <- lm(pbf~density, data = data)
+summary(model.density)
+
+nodensity.data <- data[,!(names(data) %in% c("density"))]
+
+# Fit model with everything except density
+model.nodensity <- lm(pbf~., data = nodensity.data)
+summary(model.nodensity)
+
+# Fit model with abdomen (highest correlation with pbf outside of density) only
+model.abdomen <- lm(pbf~abdomen, data = nodensity.data)
+summary(model.abdomen)
+
+# Fit model with significant variables
+model.nodensity.sig <- lm(pbf~neck+abdomen+forearm+wrist, data = nodensity.data)
+summary(model.nodensity.sig)
+
+# Fit model with intuitive variables
+model.nodensity.intuitive <- lm(pbf~abdomen+weight, data = nodensity.data)
+summary(model.nodensity.intuitive)
+```
+
+Why not just let R do the work for us and try using MSEE-based model selection techniques?
+
+```{r, echo=FALSE, results='hide', fig.show='hide'}
+library(MASS)
+nodensity.model0 <- lm(pbf~1, data = nodensity.data)
+
+# AIC/forward stepwise
+model.aic.fwstp <- stepAIC(nodensity.model0, scope=list(upper=model.nodensity, lower = ~1), direction = "both", k = 2)
+summary(model.aic.fwstp)
+
+# AIC/backward stepwise
+model.aic.bwstp <- stepAIC(model.nodensity, scope=list(upper=model.nodensity, lower = ~1), direction = "both", k = 2)
+summary(model.aic.bwstp)
+
+# AIC/forward selection
+model.aic.fwsel <- stepAIC(nodensity.model0, scope=list(upper=model.nodensity, lower = ~1), direction = "forward", k = 2)
+summary(model.aic.fwsel)
+
+# AIC/backward selection
+model.aic.bwsel <- stepAIC(model.nodensity, scope=list(upper=model.nodensity, lower = ~1), direction = "backward", k = 2)
+summary(model.aic.bwsel)
+
+# BIC/forward stepwise
+model.bic.fwstp <- stepAIC(nodensity.model0, scope=list(upper=model.nodensity, lower = ~1), direction = "both", k = log(nrow(nodensity.data)))
+summary(model.bic.fwstp)
+
+# BIC/backward stepwise
+model.bic.bwstp <- stepAIC(model.nodensity, scope=list(upper=model.nodensity, lower = ~1), direction = "both", k = log(nrow(nodensity.data)))
+summary(model.bic.bwstp)
+
+# BIC/forward selection
+model.bic.fwsel <- stepAIC(nodensity.model0, scope=list(upper=model.nodensity, lower = ~1), direction = "forward", k = log(nrow(nodensity.data)))
+summary(model.bic.fwsel)
+
+# BIC/backward selection
+model.bic.bwsel <- stepAIC(model.nodensity, scope=list(upper=model.nodensity, lower = ~1), direction = "backward", k = log(nrow(nodensity.data)))
+summary(model.bic.bwsel)
+```
+
+All BIC procedures produce the same model (pbf~weight+abdomen+forearm+wrist) with $R_a^2$=0.6984. The foreward AIC procedures produce the model (pbf~abdomen+weight+wrist+forearm+neck+bicep) with $R_a^2$=0.7026 and backward AIC procedures produce the model (pbf~age+weight+neck+abdomen+hip+thigh+forearm+wrist) with $R_a^2$=0.7064. Based on $R_a^2$, the best model of these appears to be the one selected by backward stepwise/selection.
+
+What if we converted some of these variables to categorical variables? Lets try it with age (young, middle-aged, old) and height (short, tall).
+
+```{r, echo=FALSE, results='hide', fig.show='hide'}
+cat.data <- data[,!(names(data) %in% c("density"))]
+summary(cat.data$age)
+cat.age <- c()
+cat.age[cat.data$age <= 35] <- "young"
+cat.age[cat.data$age > 35 & cat.data$age <= 54] <- "mid"
+cat.age[cat.data$age > 54] <- "old"
+cat.data$age <- as.factor(cat.age)
+
+summary(cat.data$height)
+cat.height <- c()
+cat.height[cat.data$height <= 70.34] <- "short"
+cat.height[cat.data$height > 70.34] <- "tall"
+cat.data$height <- as.factor(cat.height)
+
+# All predictors
+model.cat <- lm(pbf~., data = cat.data)
+summary(model.cat)
+anova(model.cat)
+
+# Only categorical predictors
+model.cat2 <- lm(pbf~height+age, data = cat.data)
+summary(model.cat2)
+anova(model.cat2)
+
+# All significant (< 0.05) predictors from anova
+model.cat3 <- lm(pbf~age+weight+height+neck+chest+abdomen+thigh+wrist, data = cat.data)
+summary(model.cat3)
+anova(model.cat3)
+```
+
+Retry the model selection procedures with this new dataset.
+
+```{r, echo=FALSE, results='hide', fig.show='hide'}
+cat.model0 <- lm(pbf~1, data = cat.data)
+
+# AIC/forward stepwise
+cat.model.aic.fwstp <- stepAIC(cat.model0, scope=list(upper=model.cat, lower = ~1), direction = "both", k = 2)
+summary(cat.model.aic.fwstp)
+
+# AIC/backward stepwise
+cat.model.aic.bwstp <- stepAIC(cat.model0, scope=list(upper=model.cat, lower = ~1), direction = "both", k = 2)
+summary(cat.model.aic.bwstp)
+
+# AIC/forward selection
+cat.model.aic.fwsel <- stepAIC(cat.model0, scope=list(upper=model.cat, lower = ~1), direction = "forward", k = 2)
+summary(cat.model.aic.fwsel)
+
+# AIC/backward selection
+cat.model.aic.bwsel <- stepAIC(cat.model0, scope=list(upper=model.cat, lower = ~1), direction = "backward", k = 2)
+summary(cat.model.aic.bwsel)
+
+# BIC/forward stepwise
+cat.model.bic.fwstp <- stepAIC(cat.model0, scope=list(upper=model.cat, lower = ~1), direction = "both", k = log(nrow(cat.data)))
+summary(cat.model.bic.fwstp)
+
+# BIC/backward stepwise
+cat.model.bic.bwstp <- stepAIC(model.cat, scope=list(upper=model.cat, lower = ~1), direction = "both", k = log(nrow(cat.data)))
+summary(cat.model.bic.bwstp)
+
+# BIC/forward selection
+cat.model.bic.fwsel <- stepAIC(cat.model0, scope=list(upper=model.cat, lower = ~1), direction = "forward", k = log(nrow(cat.data)))
+summary(cat.model.bic.fwsel)
+
+# BIC/backward selection
+cat.model.bic.bwsel <- stepAIC(model.cat, scope=list(upper=model.cat, lower = ~1), direction = "backward", k = log(nrow(cat.data)))
+summary(cat.model.bic.bwsel)
+```
+
+Now let's compare the density-only model with the other models we have come up with.
+
+```{r, echo=FALSE, results='hide', fig.show='hide'}
+# Calculate squared bias and model variance for various models
+sq.bias.density <- t(data$pbf - model.density$fitted.values) %*% (data$pbf - model.density$fitted.values)
+mse <- sum(model.density$residuals^2) / model.density$df.residual
+mod.var.density <- length(model.density$coefficients) * mse
+
+sq.bias.aic.bwstp <- t(data$pbf - model.aic.bwstp$fitted.values) %*% (data$pbf - model.aic.bwstp$fitted.values)
+mse <- sum(model.aic.bwstp$residuals^2) / model.aic.bwstp$df.residual
+mod.var.aic.bwstp <- length(model.aic.bwstp$coefficients) * mse
+
+sq.bias.bic.fwsel <- t(data$pbf - model.bic.fwsel$fitted.values) %*% (data$pbf - model.bic.fwsel$fitted.values)
+mse <- sum(model.bic.fwsel$residuals^2) / model.bic.fwsel$df.residual
+mod.var.bic.fwsel <- length(model.bic.fwsel$coefficients) * mse
+
+sq.bias.red.add <- t(data$pbf - model.red.add$fitted.values) %*% (data$pbf - model.red.add$fitted.values)
+mse <- sum(model.red.add$residuals^2) / model.red.add$df.residual
+mod.var.red.add <- length(model.red.add$coefficients) * mse
+
+sq.bias.nodensity.sig <- t(data$pbf - model.nodensity.sig$fitted.values) %*% (data$pbf - model.nodensity.sig$fitted.values)
+mse <- sum(model.nodensity.sig$residuals^2) / model.nodensity.sig$df.residual
+mod.var.nodensity.sig <- length(model.nodensity.sig$coefficients) * mse
+
+sq.bias.abdomen <- t(data$pbf - model.abdomen$fitted.values) %*% (data$pbf - model.abdomen$fitted.values)
+mse <- sum(model.abdomen$residuals^2) / model.abdomen$df.residual
+mod.var.abdomen <- length(model.abdomen$coefficients) * mse
+
+sq.bias.intuitive <- t(data$pbf - model.nodensity.intuitive$fitted.values) %*% (data$pbf - model.nodensity.intuitive$fitted.values)
+mse <- sum(model.nodensity.intuitive$residuals^2) / model.nodensity.intuitive$df.residual
+mod.var.intuitive <- length(model.nodensity.intuitive$coefficients) * mse
+```
+
+Check assumptions for all models being used
+
+```{r, echo=FALSE, results='hide', fig.show='hide'}
+plot(model.density)
+plot(model.aic.bwstp)
+plot(model.bic.fwsel)
+plot(model.red.add)
+plot(model.nodensity.sig)
+plot(model.abdomen)
+```
+
+The non-density models actually seem to meet the assumptions of linearity, constant variance, and normality of errors better than the density-only model. What if we perform a transformation of pbf before fitting the density-only model? Let's use the Box-Cox procedure to see which transformation would be best.
+
+```{r, echo=FALSE, results='hide', fig.show='hide'}
+boxcox(model.density)
+model.density.new <- lm(pbf^0.93~density, data = data)
+summary(model.density.new)
+plot(model.density.new)
+```
+
+Looks like raising pbf to the 0.93 power greatly resolved the assumption violations!
